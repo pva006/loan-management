@@ -2,10 +2,10 @@ package com.loanmanagement.loan_management_api.customer.service;
 
 import com.loanmanagement.loan_management_api.customer.model.*;
 import com.loanmanagement.loan_management_api.customer.repository.CustomerRepository;
+import com.loanmanagement.loan_management_api.customer.repository.LoanApplicationHistoryRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
-import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -14,118 +14,95 @@ import java.util.Optional;
 public class CustomerService {
     @Autowired
     private CustomerRepository customerRepository;
+    @Autowired
+    private LoanApplicationHistoryRepository loanApplicationHistoryRepository;
 
-    public LoanEligibility checkEligibility(int customerId) {
+    public LoanEligibility checkEligibility(int customerId, double requestedLoanAmount){
 
+        Optional<Customer> customerOptional = customerRepository.findById(customerId);
 
-        LoanEligibility loanEligibility = new LoanEligibility();
-
-        //1. minium Credit score
-        //2. OutStanding Loan Limit.
-        //3. Account age.
-        //4. employment status
-        //5. IDR
-
-        boolean isVaildCreditScoure = false;
-        boolean isVaildLoanAmount = false ;
-        boolean isAccountOld = false;
-        boolean isEmployed = false;
-        boolean isIdr = false ;
-
-        Optional<Customer> customer = customerRepository.findById(customerId);
-
-        if (customer.isPresent()) {
-            Customer c = customer.get();
-            CustomerDetails customerDetails = c.getCustomerDetails();
-
-            // Check income and credit score criteria
-            if (null != customerDetails &&  customerDetails.getCreditScore() <= 650) {
-                isVaildCreditScoure =  true;
-            }
-
-            // OutStanding Loan Limit.
-            List<Loan> loanList = c.getLoans();
-
-            Double amount = loanList.stream().mapToDouble(Loan::getLoanAmount).sum();
-
-            if (amount >= 10000){
-                isVaildLoanAmount = true;
-            }
-
-            // 3. Account age
-            Account account = c.getAccount();
-            LocalDateTime currentDate = LocalDateTime.now();
-            LocalDateTime oneYearAgo = currentDate.minusYears(1);
-
-            if (!account.getAccountCreatedDate().isBefore(oneYearAgo)){
-                isAccountOld = true;
-            }
-
-            //4. Employemnt Satus
-            if (!"Employed".equals(c.getEmploymentStatus())){
-                isEmployed = true;
-            }
-
-            Double yearlyIncome = account.getYearlyIncome();;
-            Double balance = account.getBalance();
-
-            Double idr = ( balance/yearlyIncome ) * 100 ;
-
-            if (idr <  40 ) {
-                isIdr = true;
-            }
-
-
-
-
-
-            if (isVaildCreditScoure){
-                loanEligibility.setLoanStatus("Rejected");
-                loanEligibility.setMessage("Customer not eligible for the Loan Low credit Score ");
-                return loanEligibility ;
-            } else if (isVaildLoanAmount){
-                // "Customer not eligible for the Loan becuse of Existing Loan amount grater than 10000 ";
-                loanEligibility.setLoanStatus("Rejected");
-                loanEligibility.setMessage("Customer not eligible for the Loan Low credit Score ");
-                return loanEligibility ;
-            } else if (isAccountOld) {
-                // "Customer not eligible for the Loan  because of account age is less then one year";
-
-                loanEligibility.setLoanStatus("Rejected");
-                loanEligibility.setMessage("Customer not eligible for the Loan Low credit Score ");
-                return loanEligibility ;
-            } else if (isEmployed){
-                // "Customer not eligible for the Loan  because of Customer is not employed";
-
-                loanEligibility.setLoanStatus("Rejected");
-                loanEligibility.setMessage("Customer not eligible for the Loan Low credit Score ");
-                return loanEligibility ;
-            }else if (isIdr){
-                // "Customer not eligible for the Loan  because of Customer IDR is Less then 40 % ";
-
-                loanEligibility.setLoanStatus("Rejected");
-                loanEligibility.setMessage("Customer not eligible for the Loan Low credit Score ");
-                return loanEligibility ;
-            }
-
-
-        }  else {
-            // "Customer not found.";
-
-            loanEligibility.setLoanStatus("Rejected");
-            loanEligibility.setMessage("Customer not eligible for the Loan Low credit Score ");
-            return loanEligibility ;
+        if (customerOptional.isEmpty()){
+            return  setLoanStatus("Rejected","Customer not found");
         }
 
-        // "Customer  eligible for Loan.";
+        Customer customer = customerOptional.get();
+        CustomerDetails customerDetails = customer.getCustomerDetails();
 
-        loanEligibility.setLoanStatus("Rejected");
-        loanEligibility.setMessage("Customer not eligible for the Loan Low credit Score ");
-        return loanEligibility ;
+        if(isInvalidCreditScore(customerDetails)){
+            createLoanHistory(customerId,requestedLoanAmount,"Rejected");
+            return setLoanStatus("Rejected","Customer not eligible due to low credit score .");
+        }
+
+
+        if (exceedsLoanAmount(customer)) {
+            createLoanHistory(customerId,requestedLoanAmount,"Rejected");
+            return setLoanStatus("Rejected","Existing loan amount exceeds $10000");
+        }
+
+
+        if (isNewAccount(customer.getAccount())){
+            createLoanHistory(customerId,requestedLoanAmount,"Rejected");
+            return setLoanStatus("Rejected","Account age is less than one year");
+        }
+
+        if(!isEmployed(customer)){
+            createLoanHistory(customerId,requestedLoanAmount,"Rejected");
+            return setLoanStatus("Rejected","Customer is not employed");
+        }
+
+       if( isInvalidIncomeDebtRatio(customer.getAccount()) ) {
+           createLoanHistory(customerId,requestedLoanAmount,"Rejected");
+           return setLoanStatus("Rejected","Income-to-Debt Ratio is below 40%");
+       }
+
+        createLoanHistory(customerId,requestedLoanAmount,"Approved");
+
+        return setLoanStatus("Approved","Customer is eligible for the Loan");
     }
 
     public Optional<Customer> findCustomerById(int id) {
-
         return customerRepository.findById(id);
+    }
+
+    private void createLoanHistory(int customerId, double amount,String status) {
+        LoanApplicationHistory history = new LoanApplicationHistory(customerId,amount,LocalDateTime.now(),status);
+        loanApplicationHistoryRepository.save(history);
+    }
+
+
+    private LoanEligibility setLoanStatus (String status,String message) {
+        LoanEligibility loanEligibility = new LoanEligibility();
+        loanEligibility.setMessage(message);
+        loanEligibility.setLoanStatus(status);
+        return loanEligibility;
+    }
+
+    // 1. minimum credit score
+    private boolean isInvalidCreditScore(CustomerDetails details){
+        return  details == null || details.getCreditScore() <= 650;
+    }
+
+
+    // 2. exceeds Current Loan amount is $10000
+    private boolean exceedsLoanAmount (Customer customer) {
+        Double amount = customer.getLoans().stream().mapToDouble(Loan::getLoanAmount).sum();
+        return  amount >=10000;
+    }
+
+    //3. Less than a year account created
+    private boolean isNewAccount(Account account){
+        return account.getAccountCreatedDate().isAfter(LocalDateTime.now().minusYears(1));
+    }
+
+    //4. Employeed Status
+    private boolean isEmployed(Customer customer){
+        return "Employed".equals(customer.getEmploymentStatus());
+    }
+
+
+    // 5 IDR value
+    private boolean isInvalidIncomeDebtRatio(Account account) {
+        double idr = (account.getBalance() / account.getYearlyIncome() ) * 100 ;
+        return  idr <=40;
     }
 }

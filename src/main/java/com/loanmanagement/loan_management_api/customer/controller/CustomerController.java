@@ -1,10 +1,8 @@
 package com.loanmanagement.loan_management_api.customer.controller;
 
-
 import com.loanmanagement.loan_management_api.customer.model.Customer;
 import com.loanmanagement.loan_management_api.customer.model.CustomerDetails;
 import com.loanmanagement.loan_management_api.customer.model.LoanEligibility;
-import com.loanmanagement.loan_management_api.customer.repository.CustomerRepository;
 import com.loanmanagement.loan_management_api.customer.service.CustomerDetailsService;
 import com.loanmanagement.loan_management_api.customer.service.CustomerService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -26,39 +24,26 @@ public class CustomerController {
     @Autowired
     private CustomerDetailsService customerDetailsService;
 
-    @GetMapping("/eligibility/{id}")
-    public ResponseEntity<LoanEligibility> checkEligibility(@PathVariable int id) {
-        LoanEligibility result = customerService.checkEligibility(id);
+    @GetMapping("/eligibility/{id}/{amount}")
+    public ResponseEntity<LoanEligibility> checkEligibility(@PathVariable int id,@PathVariable double amount) {
+        LoanEligibility result = customerService.checkEligibility(id,amount);
         return ResponseEntity.ok(result);
     }
+
     @GetMapping("/details/{id}")
     public ResponseEntity<Customer> getCustomerDetails(@PathVariable int id) {
         Optional<Customer> customerOptional = customerService.findCustomerById(id);
-        if (customerOptional.isPresent()) {
-            return ResponseEntity.ok(customerOptional.get());
+        return customerOptional.map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    @GetMapping("/customerDetails/{id}") // Corrected typo in endpoint
+    public ResponseEntity<CustomerDetails> getCustomerDetailsById(@PathVariable int id) {
+        CustomerDetails customerDetails = customerDetailsService.getCustomerDetails(id);
+        if (customerDetails != null) {
+            return ResponseEntity.ok(customerDetails);
         } else {
             return ResponseEntity.notFound().build();
         }
     }
-    @GetMapping("/cutomerDetails/{id}")
-    public ResponseEntity<CustomerDetails> getCustomerDetailsById(@PathVariable int id) {
-         CustomerDetails customerOptional = customerDetailsService.getCustomerDetails(id);
-            return ResponseEntity.ok(customerOptional);
-
-    }
-
-
-
-
-
 }
-
-
-
-
-
-
-
-
-
-
